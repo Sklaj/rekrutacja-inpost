@@ -62,7 +62,7 @@ export const categoryTree = async (
 
       return {
         children: category.children.length
-          ? mapCategories(category.children, setShowOnHome, true)
+          ? mapCategories(category.children, setOnHome, true)
           : [],
         image: category.MetaTagDescription,
         showOnHome: isLowerLevel ? false : hasTitleId,
