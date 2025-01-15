@@ -1,5 +1,4 @@
-import { Category } from '../mockedApi';
-import { CategoryListElement } from '../types';
+import { Category, CategoryListElement } from '../types';
 
 const FIND_NUMBER_REGEXP = /\d+/g;
 
