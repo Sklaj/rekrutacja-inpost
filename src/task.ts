@@ -1,96 +1,98 @@
-import { getCategories } from "./mockedApi";
+import { Category } from './mockedApi';
 
 export interface CategoryListElement {
-  name: string;
-  id: number;
-  image: string;
-  order: number;
   children: CategoryListElement[];
+  image: string;
   showOnHome: boolean;
+  id: number;
+  name: string;
+  order: number;
 }
 
-export const categoryTree = async (): Promise<CategoryListElement[]> => {
+const FIND_NUMBER_REGEXP = /\d+/g;
+const MIN_CATEGORIES_TO_SHOW_ON_HOME = 5;
 
-  const res = await getCategories();
+//Was checking possibilities of passing input data type as an argument for categoryTree
+// but that solution creates number of issues in data handling and mapping which is
+// heavily related to data structure
 
+export const categoryTree = async (
+  getData: () => Promise<{ data: Category[] }>
+): Promise<CategoryListElement[]> => {
+  const res = await getData();
   if (!res.data) {
     return [];
   }
 
   const toShowOnHome: number[] = [];
+  const setShowOnHome = (id: number) => {
+    toShowOnHome.push(id);
+  };
 
-  let result = res.data.map((c1) => {
-    let order = c1.Title;
-    if (c1.Title && c1.Title.includes("#")) {
-      order = c1.Title.split("#")[0];
-      toShowOnHome.push(c1.id);
+  //Few assumptions in below function:
+  // 1. Assumed that showOnHome value should be happening only on highest level of nesting and doesn't depend on Title containing '#'.
+  //  That's why added argument if it's on lower level to prevent adding showOnHome:true when there's a number in Title filed on lower levels.
+  //  In case we would need hash to set toShowOnHome.
+  //  const hasHashTitle = category.Title && category.Title.includes('#');
+  //  if(hasHashTitle && setOnHome) {
+  //     setOnHome(category.id);
+  //  }
+  // 2. Decided to keep getOrder() inside mapCategories() to not mess name space. If we would like to use it else where or test it separately
+  //  then it should be moved to other file, probably in directory like 'helpers' or 'utils'.
+  // 3. Wanted to keep mapCategories() as a pure function that's why there's also setShowOnHome passed as an argument.
+  //  in this shape mapCategories() could be also passed to categoryTree() as an argument, so we can have categoryTree() as an abstract
+  //  which is just using functions passed as an argument.
+
+  const mapCategories = (
+    data: Category[],
+    setOnHome?: (id: number) => void,
+    isLowerLevel?: boolean
+  ): CategoryListElement[] => {
+    const mappedCategories = data.map((category) => {
+      const getOrder = (elemId: number, elemTitle?: string): number => {
+        const titlesNum = elemTitle && elemTitle.match(FIND_NUMBER_REGEXP);
+        return titlesNum && titlesNum[0] ? parseInt(titlesNum[0]) : elemId;
+      };
+
+      const hasTitleId =
+        category.Title && !!category.Title.match(FIND_NUMBER_REGEXP);
+      if (hasTitleId && setShowOnHome) {
+        setOnHome(category.id);
+      }
+
+      return {
+        children: category.children.length
+          ? mapCategories(category.children, setShowOnHome, true)
+          : [],
+        image: category.MetaTagDescription,
+        showOnHome: isLowerLevel ? false : hasTitleId,
+        id: category.id,
+        name: category.name,
+        order: getOrder(category.id, category.Title),
+      };
+    });
+
+    return mappedCategories.sort((a, b) => a.order - b.order);
+  };
+
+  const setHomeCategories = (
+    dataMapped: CategoryListElement[],
+    onHome: number[]
+  ): CategoryListElement[] => {
+    if (dataMapped.length <= MIN_CATEGORIES_TO_SHOW_ON_HOME) {
+      dataMapped.map((a) => (a.showOnHome = true));
+      //added another condition below, looked like this loops should not run twice when category list length is lower than 5
+    } else if (
+      dataMapped.length > MIN_CATEGORIES_TO_SHOW_ON_HOME &&
+      onHome.length > 0
+    ) {
+      dataMapped.forEach((b) => (b.showOnHome = toShowOnHome.includes(b.id)));
+    } else {
+      dataMapped.forEach((c, index) => (c.showOnHome = index < 3));
     }
+    return dataMapped;
+  };
 
-    let orderL1 = parseInt(order);
-    if (isNaN(orderL1)) {
-      orderL1 = c1.id;
-    }
-    let l2Kids = c1.children
-      ? c1.children.map((c2) => {
-          let order2 = c1.Title;
-          if (c2.Title && c2.Title.includes("#")) {
-            order2 = c2.Title.split("#")[0];
-          }
-          let orderL2 = parseInt(order2);
-          if (isNaN(orderL2)) {
-            orderL2 = c2.id;
-          }
-          let l3Kids = c2.children
-            ? c2.children.map((c3) => {
-                let order3 = c1.Title;
-                if (c3.Title && c3.Title.includes("#")) {
-                  order3 = c3.Title.split("#")[0];
-                }
-                let orderL3 = parseInt(order3);
-                if (isNaN(orderL3)) {
-                  orderL3 = c3.id;
-                }
-                return {
-                  id: c3.id,
-                  image: c3.MetaTagDescription,
-                  name: c3.name,
-                  order: orderL3,
-                  children: [],
-                  showOnHome: false,
-                };
-              })
-            : [];
-          l3Kids.sort((a, b) => a.order - b.order);
-          return {
-            id: c2.id,
-            image: c2.MetaTagDescription,
-            name: c2.name,
-            order: orderL2,
-            children: l3Kids,
-            showOnHome: false,
-          };
-        })
-      : [];
-    l2Kids.sort((a, b) => a.order - b.order);
-    return {
-      id: c1.id,
-      image: c1.MetaTagDescription,
-      name: c1.name,
-      order: orderL1,
-      children: l2Kids,
-      showOnHome: false,
-    };
-  });
-
-  result.sort((a, b) => a.order - b.order);
-
-  if (result.length <= 5) {
-    result.forEach((a) => (a.showOnHome = true));
-  } else if (toShowOnHome.length > 0) {
-    result.forEach((x) => (x.showOnHome = toShowOnHome.includes(x.id)));
-  } else {
-    result.forEach((x, index) => (x.showOnHome = index < 3));
-  }
-
-  return result;
+  const result = mapCategories(res.data, setShowOnHome);
+  return setHomeCategories(result, toShowOnHome);
 };
